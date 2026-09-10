@@ -4,6 +4,7 @@ import { DEFAULT_CHALLENGE } from '../data/defaultChallenge';
 import { sounds } from '../utils/soundEffects';
 import { Question } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 interface VideoRecorderStudioProps {
   onBack: () => void;
@@ -198,91 +199,167 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
 
       sounds.setCustomDestination(audioDest);
 
-      // 2. Capture canvas stream at 60 FPS for ultra-smooth 1080p motion
-      const canvasStream = canvas.captureStream(60);
-
-      // 3. Combine Video Tracks + Audio Tracks into unified MediaStream
-      const audioTracks = audioDest.stream.getAudioTracks();
-      const videoTracks = canvasStream.getVideoTracks();
-
-      const combinedTracks = [...videoTracks, ...audioTracks];
-      const combinedStream = new MediaStream(combinedTracks);
-
-      // 4. Prioritize native MP4 (H.264 / AVC) encoders for YouTube Shorts, TikTok & Reels
-      const mimeTypes = [
-        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-        'video/mp4;codecs=avc1,mp4a.40.2',
-        'video/mp4;codecs=avc1',
-        'video/mp4;codecs=h264',
-        'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm'
-      ];
-
-      const mimeType = mimeTypes.find(type => {
-        try {
-          return typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type);
-        } catch {
-          return false;
-        }
-      });
-
-      // 12 Mbps video bitrate for crystal-clear 1080x1920 vertical video + 192 kbps audio
-      const recorderOptions: MediaRecorderOptions = {
-        videoBitsPerSecond: 12000000,
-        audioBitsPerSecond: 192000
-      };
-      if (mimeType) {
-        recorderOptions.mimeType = mimeType;
-      }
-
-      const recorder = new MediaRecorder(combinedStream, recorderOptions);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
+      // 2. MP4 Engine Setup: Try WebCodecs + mp4-muxer for native 1080p H.264/AAC MP4 output
+      let mp4Muxer: Muxer<ArrayBufferTarget> | null = null;
+      let videoEncoder: VideoEncoder | null = null;
+      let audioEncoder: AudioEncoder | null = null;
+      let scriptProcessor: ScriptProcessorNode | null = null;
+      let frameCount = 0;
+      let isWebCodecsActive = false;
 
       const filename = `BACS_${platform === 'youtube_shorts' ? 'Shorts' : 'TikTok'}_${activeQuestions.length}Q_1080p_${Date.now()}.mp4`;
       setDownloadedFilename(filename);
 
-      recorder.onstop = () => {
-        sounds.setCustomDestination(null);
+      if (typeof VideoEncoder !== 'undefined' && typeof ArrayBufferTarget !== 'undefined') {
         try {
-          silentOsc.stop();
-          silentOsc.disconnect();
-        } catch (e) {}
+          const sampleRate = audioCtx.sampleRate || 44100;
+          mp4Muxer = new Muxer({
+            target: new ArrayBufferTarget(),
+            video: {
+              codec: 'avc',
+              width: 1080,
+              height: 1920
+            },
+            audio: {
+              codec: 'aac',
+              numberOfChannels: 2,
+              sampleRate: sampleRate
+            },
+            fastStart: 'in-memory'
+          });
 
-        const finalMime = mimeType && mimeType.includes('mp4') ? mimeType : (recorder.mimeType || 'video/mp4');
-        const blob = new Blob(chunksRef.current, { type: finalMime.includes('mp4') ? 'video/mp4' : finalMime });
-        
-        if (blob.size < 500) {
-          setStatus('error');
-          setErrorMessage('Captured video blob is too small. Please try recording again.');
-          return;
+          videoEncoder = new VideoEncoder({
+            output: (chunk, meta) => mp4Muxer?.addVideoChunk(chunk, meta),
+            error: (e) => console.error('VideoEncoder error:', e)
+          });
+
+          videoEncoder.configure({
+            codec: 'avc1.42E01E', // Baseline H.264
+            width: 1080,
+            height: 1920,
+            bitrate: 12_000_000,
+            framerate: 60
+          });
+
+          if (typeof AudioEncoder !== 'undefined') {
+            audioEncoder = new AudioEncoder({
+              output: (chunk, meta) => mp4Muxer?.addAudioChunk(chunk, meta),
+              error: (e) => console.error('AudioEncoder error:', e)
+            });
+
+            audioEncoder.configure({
+              codec: 'mp4a.40.2', // AAC-LC
+              numberOfChannels: 2,
+              sampleRate: sampleRate,
+              bitrate: 192_000
+            });
+
+            // Stream Web Audio PCM buffers into AudioEncoder
+            scriptProcessor = audioCtx.createScriptProcessor(4096, 2, 2);
+            let audioStartTime: number | null = null;
+
+            scriptProcessor.onaudioprocess = (e) => {
+              if (!audioEncoder || audioEncoder.state !== 'configured') return;
+              const left = e.inputBuffer.getChannelData(0);
+              const right = e.inputBuffer.getChannelData(1);
+
+              if (audioStartTime === null) {
+                audioStartTime = audioCtx.currentTime;
+              }
+
+              const planarData = new Float32Array(left.length * 2);
+              planarData.set(left, 0);
+              planarData.set(right, left.length);
+
+              const timestampUs = Math.max(0, Math.round((audioCtx.currentTime - audioStartTime) * 1_000_000));
+
+              try {
+                const audioData = new AudioData({
+                  format: 'f32-planar',
+                  sampleRate: e.inputBuffer.sampleRate,
+                  numberOfFrames: left.length,
+                  numberOfChannels: 2,
+                  timestamp: timestampUs,
+                  data: planarData
+                });
+                audioEncoder.encode(audioData);
+                audioData.close();
+              } catch (err) {
+                console.warn('AudioData encode error:', err);
+              }
+            };
+
+            silentGain.connect(scriptProcessor);
+            scriptProcessor.connect(audioCtx.destination);
+          }
+
+          isWebCodecsActive = true;
+        } catch (e) {
+          console.warn('WebCodecs MP4 setup failed, falling back to MediaRecorder:', e);
+          isWebCodecsActive = false;
         }
+      }
 
-        const url = URL.createObjectURL(blob);
-        setDownloadUrl(url);
-        setStatus('success');
+      // Fallback MediaRecorder setup if WebCodecs is unavailable
+      let recorder: MediaRecorder | null = null;
+      if (!isWebCodecsActive) {
+        const canvasStream = canvas.captureStream(60);
+        const audioTracks = audioDest.stream.getAudioTracks();
+        const videoTracks = canvasStream.getVideoTracks();
+        const combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
 
-        // Auto trigger download anchor
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-        }, 200);
-      };
+        const mimeTypes = [
+          'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+          'video/mp4;codecs=avc1',
+          'video/mp4',
+          'video/webm;codecs=vp9,opus',
+          'video/webm'
+        ];
 
-      recorder.start(500); // collect chunks every 500ms for safety
+        const mimeType = mimeTypes.find(type => {
+          try {
+            return typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type);
+          } catch { return false; }
+        });
+
+        recorder = new MediaRecorder(combinedStream, {
+          videoBitsPerSecond: 12000000,
+          audioBitsPerSecond: 192000,
+          ...(mimeType ? { mimeType } : {})
+        });
+        mediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            chunksRef.current.push(event.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          sounds.setCustomDestination(null);
+          try { silentOsc.stop(); silentOsc.disconnect(); } catch (e) {}
+
+          const blob = new Blob(chunksRef.current, { type: recorder?.mimeType || 'video/mp4' });
+          if (blob.size < 500) {
+            setStatus('error');
+            setErrorMessage('Captured video blob is too small. Please try recording again.');
+            return;
+          }
+
+          const url = URL.createObjectURL(blob);
+          setDownloadUrl(url);
+          setStatus('success');
+
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => document.body.removeChild(a), 200);
+        };
+
+        recorder.start(500);
+      }
 
       // 5. Start Video Animation & Sound Audio Loop
       let startTime = performance.now();
@@ -714,11 +791,65 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
 
         } // End of question screen vs ending scene block
 
+        // Encode video frame via WebCodecs H.264
+        if (isWebCodecsActive && videoEncoder && videoEncoder.state === 'configured') {
+          try {
+            const timestampUs = Math.max(0, Math.round(elapsed * 1000));
+            const frame = new VideoFrame(canvas, { timestamp: timestampUs });
+            videoEncoder.encode(frame, { keyFrame: frameCount % 120 === 0 });
+            frame.close();
+            frameCount++;
+          } catch (err) {
+            console.warn('VideoFrame encode error:', err);
+          }
+        }
+
         if (elapsed < totalDurationMs) {
           animFrameIdRef.current = requestAnimationFrame(renderFrame);
         } else {
           sounds.playMilestone();
-          recorder.stop();
+          if (isWebCodecsActive && mp4Muxer) {
+            (async () => {
+              sounds.setCustomDestination(null);
+              try { silentOsc.stop(); silentOsc.disconnect(); } catch (e) {}
+              if (scriptProcessor) { try { scriptProcessor.disconnect(); } catch (e) {} }
+
+              try {
+                if (videoEncoder && videoEncoder.state === 'configured') {
+                  await videoEncoder.flush();
+                }
+                if (audioEncoder && audioEncoder.state === 'configured') {
+                  await audioEncoder.flush();
+                }
+                mp4Muxer.finalize();
+
+                const { buffer } = mp4Muxer.target;
+                const mp4Blob = new Blob([buffer], { type: 'video/mp4' });
+
+                if (mp4Blob.size > 1000) {
+                  const url = URL.createObjectURL(mp4Blob);
+                  setDownloadUrl(url);
+                  setStatus('success');
+
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(() => document.body.removeChild(a), 200);
+                  return;
+                }
+              } catch (e) {
+                console.warn('WebCodecs MP4 finalize error:', e);
+              }
+
+              if (recorder && recorder.state === 'recording') {
+                recorder.stop();
+              }
+            })();
+          } else if (recorder && recorder.state === 'recording') {
+            recorder.stop();
+          }
         }
       };
 
