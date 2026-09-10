@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <g id="logo">
+    <!-- Left O ring with Maple Leaf -->
+    <g transform="translate(240, 225)">
+      <!-- Outer Navy Aperture Ring -->
+      <path d="M -10 -150 A 150 150 0 0 1 140 -50 L 100 -35 A 110 110 0 0 0 -7 -110 Z" fill="#0a2540" />
+      <path d="M 150 -10 A 150 150 0 0 1 50 140 L 35 100 A 110 110 0 0 0 110 -7 Z" fill="#0a2540" />
+      <path d="M 10 150 A 150 150 0 0 1 -140 50 L -100 35 A 110 110 0 0 0 7 110 Z" fill="#0a2540" />
+      <path d="M -150 10 A 150 150 0 0 1 -50 -140 L -35 -100 A 110 110 0 0 0 -110 7 Z" fill="#0a2540" />
+      
+      <!-- Inner White Circle -->
+      <circle cx="0" cy="0" r="102" fill="#ffffff" />
+      
+      <!-- Canadian Maple Leaf -->
+      <path d="M 0 -70 Q 2 -55 8 -48 L 22 -52 Q 18 -42 14 -35 L 32 -30 Q 28 -18 24 -10 L 42 2 L 20 12 L 26 32 Q 14 26 8 26 L 5 58 L -5 58 L -8 26 Q -14 26 -26 32 L -20 12 L -42 2 L -24 -10 Q -28 -18 -32 -30 L -14 -35 Q -18 -42 -22 -52 L -8 -48 Q -2 -55 0 -70 Z" fill="#0a2540" />
+    </g>
+
+    <!-- Right S Ribbon with White Flow Arrows -->
+    <g transform="translate(530, 225)">
+      <!-- Main Red S Ribbon -->
+      <path d="M -40 -125 C 50 -125, 125 -85, 125 -25 C 125 45, 30 55, -20 75 C -75 95, -85 125, -85 150 C -85 185, -45 205, 10 205 C 70 205, 115 165, 135 120 L 175 138 C 148 202, 92 245, 8 245 C -82 245, -130 200, -130 145 C -130 82, -30 60, 20 42 C 70 25, 80 -5, 80 -30 C 80 -65, 42 -85, -20 -85 C -80 -85, -125 -48, -140 -10 L -180 -25 C -158 -88, -98 -125, -40 -125 Z" fill="#d92626" />
+      
+      <!-- White arrows on S ribbon -->
+      <path d="M 20 -105 L 90 -105 L 65 -125 M 90 -105 L 65 -85" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <path d="M 0 170 L -70 170 L -45 150 M -70 170 L -45 190" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </g>
+  </g>
+</svg>
