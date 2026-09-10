@@ -198,8 +198,8 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
 
       sounds.setCustomDestination(audioDest);
 
-      // 2. Capture canvas stream at 30 FPS
-      const canvasStream = canvas.captureStream(30);
+      // 2. Capture canvas stream at 60 FPS for ultra-smooth 1080p motion
+      const canvasStream = canvas.captureStream(60);
 
       // 3. Combine Video Tracks + Audio Tracks into unified MediaStream
       const audioTracks = audioDest.stream.getAudioTracks();
@@ -208,15 +208,18 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
       const combinedTracks = [...videoTracks, ...audioTracks];
       const combinedStream = new MediaStream(combinedTracks);
 
-      // 4. Select supported MIME type across browsers (Chrome, Firefox, Safari)
+      // 4. Prioritize native MP4 (H.264 / AVC) encoders for YouTube Shorts, TikTok & Reels
       const mimeTypes = [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/mp4;codecs=avc1',
+        'video/mp4;codecs=h264',
+        'video/mp4',
         'video/webm;codecs=vp9,opus',
         'video/webm;codecs=vp8,opus',
         'video/webm;codecs=vp9',
         'video/webm;codecs=vp8',
-        'video/webm',
-        'video/mp4;codecs=avc1',
-        'video/mp4'
+        'video/webm'
       ];
 
       const mimeType = mimeTypes.find(type => {
@@ -227,7 +230,11 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
         }
       });
 
-      const recorderOptions: MediaRecorderOptions = { videoBitsPerSecond: 6000000 };
+      // 12 Mbps video bitrate for crystal-clear 1080x1920 vertical video + 192 kbps audio
+      const recorderOptions: MediaRecorderOptions = {
+        videoBitsPerSecond: 12000000,
+        audioBitsPerSecond: 192000
+      };
       if (mimeType) {
         recorderOptions.mimeType = mimeType;
       }
@@ -241,8 +248,7 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
         }
       };
 
-      const fileExt = mimeType && mimeType.includes('mp4') ? 'mp4' : 'webm';
-      const filename = `BACS_${platform === 'youtube_shorts' ? 'Shorts' : 'TikTok'}_${activeQuestions.length}Q_${totalDurationSec}s_${Date.now()}.${fileExt}`;
+      const filename = `BACS_${platform === 'youtube_shorts' ? 'Shorts' : 'TikTok'}_${activeQuestions.length}Q_1080p_${Date.now()}.mp4`;
       setDownloadedFilename(filename);
 
       recorder.onstop = () => {
@@ -252,8 +258,8 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ onBack
           silentOsc.disconnect();
         } catch (e) {}
 
-        const finalMime = mimeType || recorder.mimeType || 'video/webm';
-        const blob = new Blob(chunksRef.current, { type: finalMime });
+        const finalMime = mimeType && mimeType.includes('mp4') ? mimeType : (recorder.mimeType || 'video/mp4');
+        const blob = new Blob(chunksRef.current, { type: finalMime.includes('mp4') ? 'video/mp4' : finalMime });
         
         if (blob.size < 500) {
           setStatus('error');
