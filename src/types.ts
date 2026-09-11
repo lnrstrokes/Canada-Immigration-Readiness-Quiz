@@ -12,7 +12,7 @@ export interface Question {
   id: string;
   number: number;
   category: string;
-  difficulty: string;
+  difficulty: string; // e.g. 'Standard IRCC', 'Advanced CRS', 'Complex Case'
   streamNumber: number;
   text: string;
   options: {
@@ -22,8 +22,8 @@ export interface Question {
     D: string;
   };
   correctAnswer: QuestionOption;
-  reference: string;
-  insight: string;
+  reference: string; // Official IRCC Regulation / Ministerial Instruction / Operational Instruction
+  insight: string; // Strategic immigration advice & compliance guidance
   milestoneId: string;
 }
 
@@ -33,4 +33,13 @@ export interface ChallengeConfig {
   streamName: string;
   milestones: Milestone[];
   questions: Question[];
+}
+
+export interface AssessmentResult {
+  score: number;
+  total: number;
+  level: string;
+  readiness: string;
+  recommendation: string;
+  crsEstimate: string;
 }

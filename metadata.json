@@ -1,6 +1,6 @@
 {
-  "name": "BACS Immigration Live Challenge",
-  "description": "Interactive Canada immigration knowledge assessment engine with milestone tracking, canvas recording, and PWA capabilities for YouTube livestreams.",
+  "name": "BACS Canada Immigration Assessment",
+  "description": "Interactive Canada immigration knowledge assessment engine with IRCC compliance source citations, CRS point optimizer, and PWA capabilities.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

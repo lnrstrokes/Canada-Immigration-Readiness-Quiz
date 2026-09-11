@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { DEFAULT_CHALLENGE } from './data/defaultChallenge';
 import { SetupView } from './components/SetupView';
 import { LivestreamBroadcast } from './components/LivestreamBroadcast';
-import { VideoDownloadView } from './components/VideoDownloadView';
 import { VideoRecorderStudio } from './components/VideoRecorderStudio';
 
-type AppView = 'setup' | 'broadcast' | 'download_guide' | 'recorder_studio';
+type AppView = 'setup' | 'assessment' | 'recorder_studio';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('setup');
@@ -15,7 +14,7 @@ export default function App() {
   const [shuffle, setShuffle] = useState(true);
   const [questionCount, setQuestionCount] = useState<number>(10);
 
-  const handleStartStream = (
+  const handleStartAssessment = (
     categories: string[],
     isShuffle: boolean,
     count: number
@@ -23,30 +22,26 @@ export default function App() {
     setSelectedCategories(categories);
     setShuffle(isShuffle);
     setQuestionCount(count);
-    setCurrentView('broadcast');
+    setCurrentView('assessment');
   };
 
   if (currentView === 'setup') {
     return (
       <SetupView
         config={DEFAULT_CHALLENGE}
-        onStartStream={handleStartStream}
-        onOpenDownloadGuide={() => setCurrentView('download_guide')}
-      />
-    );
-  }
-
-  if (currentView === 'download_guide') {
-    return (
-      <VideoDownloadView
-        onBack={() => setCurrentView('setup')}
-        onOpenRecorderStudio={() => setCurrentView('recorder_studio')}
+        onStartAssessment={handleStartAssessment}
+        onOpenVideoStudio={() => setCurrentView('recorder_studio')}
       />
     );
   }
 
   if (currentView === 'recorder_studio') {
-    return <VideoRecorderStudio onBack={() => setCurrentView('download_guide')} />;
+    return (
+      <VideoRecorderStudio
+        config={DEFAULT_CHALLENGE}
+        onBack={() => setCurrentView('setup')}
+      />
+    );
   }
 
   return (
@@ -56,6 +51,7 @@ export default function App() {
       shuffle={shuffle}
       questionCount={questionCount}
       onBackToSetup={() => setCurrentView('setup')}
+      onOpenVideoStudio={() => setCurrentView('recorder_studio')}
     />
   );
 }

@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "BACS Immigration Live Challenge",
-  "short_name": "BACS Quiz",
-  "description": "Official Canada Immigration & IRCC compliance quiz platform with live stream broadcasting and Shorts video studio.",
+  "name": "BACS Canada Immigration Assessment",
+  "short_name": "BACS Canada",
+  "description": "Interactive Canada immigration knowledge assessment engine with IRCC compliance source citations, CRS point optimizer, and PWA capabilities.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0b132b",
-  "theme_color": "#0f172a",
+  "theme_color": "#0b132b",
   "icons": [
     {
       "src": "/pwa-192x192.png",
