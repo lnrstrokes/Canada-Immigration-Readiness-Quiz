@@ -2,6 +2,7 @@
 declare class VideoEncoder {
   constructor(init: { output: (chunk: any, metadata?: any) => void; error: (error: any) => void });
   readonly state: 'unconfigured' | 'configured' | 'closed';
+  static isConfigSupported(config: { codec: string; width: number; height: number; bitrate?: number; framerate?: number }): Promise<{ supported: boolean; config?: any }>;
   configure(config: { codec: string; width: number; height: number; bitrate?: number; framerate?: number }): void;
   encode(frame: VideoFrame, options?: { keyFrame?: boolean }): void;
   flush(): Promise<void>;
@@ -11,6 +12,7 @@ declare class VideoEncoder {
 declare class AudioEncoder {
   constructor(init: { output: (chunk: any, metadata?: any) => void; error: (error: any) => void });
   readonly state: 'unconfigured' | 'configured' | 'closed';
+  static isConfigSupported(config: { codec: string; numberOfChannels: number; sampleRate: number; bitrate?: number }): Promise<{ supported: boolean; config?: any }>;
   configure(config: { codec: string; numberOfChannels: number; sampleRate: number; bitrate?: number }): void;
   encode(data: AudioData): void;
   flush(): Promise<void>;

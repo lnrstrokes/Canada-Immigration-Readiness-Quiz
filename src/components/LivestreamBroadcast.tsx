@@ -1,64 +1,55 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ChallengeConfig, Question, QuestionOption, AssessmentResult } from '../types';
+import React, { useState, useEffect } from 'react';
+import { ChallengeConfig, Question, QuestionOption, isShortAnswerSet } from '../types';
 import { sounds } from '../utils/soundEffects';
-import { Volume2, VolumeX, Flame, CheckCircle2, ShieldCheck, BookOpen, Layers, Award, MessageCircle, ExternalLink, RotateCcw, ArrowLeft, Zap, Sparkles, Compass } from 'lucide-react';
+import {
+  Volume2,
+  VolumeX,
+  Flame,
+  CheckCircle2,
+  BookOpen,
+  RotateCcw,
+  ArrowLeft,
+  Sparkles,
+  ShieldCheck,
+  Pause,
+  Play,
+  ExternalLink,
+} from 'lucide-react';
 
 interface LivestreamBroadcastProps {
   config: ChallengeConfig;
   selectedCategories: string[];
   shuffle: boolean;
   questionCount: number;
+  questionDuration?: number;
+  revealDuration?: number;
   onBackToSetup: () => void;
   onOpenVideoStudio: () => void;
 }
 
-export const calculateAssessmentResult = (score: number, total: number): AssessmentResult => {
-  if (total === 0) return { score: 0, total: 0, level: 'Assessment In Progress', readiness: 'Pending', recommendation: 'Complete practice session to view result', crsEstimate: 'N/A' };
-  const pct = score / total;
-  if (pct >= 0.85) {
-    return {
-      score,
-      total,
-      level: 'IRCC Policy Expert',
-      readiness: 'High Readiness (Ready for Express Entry ITA)',
-      recommendation: 'Your IRCC knowledge is excellent. Ensure your NYSC reference letters match lead NOC statements.',
-      crsEstimate: '480 - 520+ CRS Target Range',
-    };
-  } else if (pct >= 0.70) {
-    return {
-      score,
-      total,
-      level: 'Strong Policy Understanding',
-      readiness: 'Moderate-High Readiness',
-      recommendation: 'Target CLB 9 in language testing (IELTS 8/7/7/7) to trigger maximum CRS Skills Transferability points.',
-      crsEstimate: '450 - 480 CRS Target Range',
-    };
-  } else if (pct >= 0.50) {
-    return {
-      score,
-      total,
-      level: 'Intermediate Policy Awareness',
-      readiness: 'Requires Strategic Optimization',
-      recommendation: 'Review reference letter letterhead standards and explore PNP provincial pathways (OINP, AAIP).',
-      crsEstimate: '420 - 450 CRS Target Range',
-    };
-  } else {
-    return {
-      score,
-      total,
-      level: 'Foundational Awareness',
-      readiness: 'High Risk of Inadmissibility / Documentation Gaps',
-      recommendation: 'Schedule a 1-on-1 strategy session to audit work experience evidence and prevent misrepresentation risks.',
-      crsEstimate: '<420 CRS - PNP / C11 Exploration Recommended',
-    };
-  }
+export type QuizPhase =
+  | 'question'
+  | 'times_up'
+  | 'animating'
+  | 'revealed'
+  | 'transitioning';
+
+export const getPerformanceMessage = (score: number, total: number): string => {
+  if (total === 0) return 'OFF TO A STRONG START';
+  const ratio = score / total;
+  if (ratio >= 0.9) return 'EXCELLENT';
+  if (ratio >= 0.66) return 'STRONG PERFORMANCE';
+  if (ratio >= 0.33) return 'KEEP GOING';
+  return 'ROOM TO IMPROVE';
 };
 
 export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
   config,
   selectedCategories,
   shuffle,
-  questionCount,
+  questionCount = 3,
+  questionDuration = 25, // Section 9: 25s Question Countdown
+  revealDuration = 12,   // Section 9: 12s Review Countdown
   onBackToSetup,
   onOpenVideoStudio,
 }) => {
@@ -72,18 +63,26 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
     }
     return filtered.slice(0, questionCount);
   });
+
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(30);
-  const [isRevealed, setIsRevealed] = useState(false);
+  const [phase, setPhase] = useState<QuizPhase>('question');
+  const [timeLeft, setTimeLeft] = useState(questionDuration);
   const [selectedOption, setSelectedOption] = useState<QuestionOption | null>(null);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [nextCountdown, setNextCountdown] = useState(12);
+  const [nextCountdown, setNextCountdown] = useState(revealDuration);
   const [isCompleted, setIsCompleted] = useState(false);
-  const [ctaCountdown, setCtaCountdown] = useState(15);
-  const prevMilestoneIdRef = useRef<string | null>(null);
 
+  // Section 11 & 14: Loop countdown for auto-restarting next round (9s)
+  const [loopCountdown, setLoopCountdown] = useState(9);
+  const [isLoopPaused, setIsLoopPaused] = useState(false);
+
+  const currentQ = (questions && questions.length > 0)
+    ? (questions[currentIndex % questions.length] || questions[0])
+    : config.questions[0];
+
+  // Re-initialize whenever config, categories, or counts change
   useEffect(() => {
     let filtered = config.questions.filter((q) => q && q.category && selectedCategories.includes(q.category));
     if (filtered.length === 0) {
@@ -94,38 +93,31 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
     }
     filtered = filtered.slice(0, questionCount);
     setQuestions(filtered);
+    setCurrentIndex(0);
+    setScore(0);
+    setStreak(0);
+    setTimeLeft(questionDuration);
+    setNextCountdown(revealDuration);
+    setPhase('question');
+    setSelectedOption(null);
+    setIsCompleted(false);
+    setLoopCountdown(9);
+    setIsLoopPaused(false);
     sounds.playMilestone();
-  }, [config, selectedCategories, shuffle, questionCount]);
-
-  const currentQ = (questions && questions.length > 0)
-    ? (questions[currentIndex % questions.length] || questions[0])
-    : config.questions[0];
-
-  const currentMilestone = config.milestones.find(
-    (m) => currentQ && currentQ.number >= m.startQuestion && currentQ.number <= m.endQuestion
-  ) || config.milestones[0];
-
-  useEffect(() => {
-    if (!isCompleted && currentMilestone && prevMilestoneIdRef.current !== currentMilestone.id) {
-      if (prevMilestoneIdRef.current !== null) {
-        sounds.playMilestone();
-      }
-      prevMilestoneIdRef.current = currentMilestone.id;
-    }
-  }, [isCompleted, currentMilestone]);
+  }, [config, selectedCategories, shuffle, questionCount, questionDuration, revealDuration]);
 
   const handleToggleMute = () => {
     const m = sounds.toggleMute();
     setIsMuted(m);
   };
 
-  // Thinking time countdown timer
+  // Phase 1: Question 25-second countdown (Section 5 & 9)
   useEffect(() => {
     let timer: any = null;
-    if (!isCompleted && !isRevealed && currentQ) {
+    if (!isCompleted && phase === 'question' && currentQ) {
       if (timeLeft > 0) {
         timer = setTimeout(() => {
-          if (timeLeft <= 5) {
+          if (timeLeft <= 4 && timeLeft > 1) {
             sounds.playUrgentTick();
           } else {
             sounds.playTick();
@@ -133,20 +125,60 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
           setTimeLeft((prev) => prev - 1);
         }, 1000);
       } else {
-        setIsRevealed(true);
-        setSelectedOption(null);
-        sounds.playReveal();
+        // Countdown hit 0 -> enter 0.5s TIME'S UP pause (Section 7)
+        setPhase('times_up');
       }
     }
     return () => clearTimeout(timer);
-  }, [isCompleted, timeLeft, isRevealed, currentQ]);
+  }, [isCompleted, phase, timeLeft, currentQ]);
 
-  // Review time countdown timer
+  // Phase 2: TIME'S UP 0.5s pause (Section 7: Question -> 25s countdown -> TIME'S UP -> 0.5s pause)
   useEffect(() => {
-    let nextTimer: any = null;
-    if (!isCompleted && isRevealed) {
+    let pauseTimer: any = null;
+    if (phase === 'times_up') {
+      pauseTimer = setTimeout(() => {
+        // Evaluate score if candidate had selected an option
+        if (selectedOption) {
+          if (selectedOption === currentQ.correctAnswer) {
+            setScore((prev) => prev + 1);
+            setStreak((prev) => prev + 1);
+            sounds.playCorrect();
+          } else {
+            setStreak(0);
+            sounds.playReveal();
+          }
+        } else {
+          setStreak(0);
+          sounds.playReveal();
+        }
+        setPhase('animating');
+      }, 500); // 0.5s pause
+    }
+    return () => clearTimeout(pauseTimer);
+  }, [phase, selectedOption, currentQ]);
+
+  // Phase 3: Answer Reveal Animation (~1.5s) (Section 7)
+  // - incorrect answers dim to ~40-50% opacity
+  // - correct answer stays visually dominant
+  // - correct answer border transitions to green with subtle glow/pulse
+  // - checkmark animates in scale 0 -> 1
+  useEffect(() => {
+    let animTimer: any = null;
+    if (phase === 'animating') {
+      animTimer = setTimeout(() => {
+        setNextCountdown(revealDuration);
+        setPhase('revealed');
+      }, 1500); // ~1.5s
+    }
+    return () => clearTimeout(animTimer);
+  }, [phase, revealDuration]);
+
+  // Phase 4: Official Reasoning Panel & 12-second review countdown (Section 7, 8, 9)
+  useEffect(() => {
+    let reviewTimer: any = null;
+    if (!isCompleted && phase === 'revealed') {
       if (nextCountdown > 0) {
-        nextTimer = setTimeout(() => {
+        reviewTimer = setTimeout(() => {
           if (nextCountdown <= 3) {
             sounds.playUrgentTick();
           } else {
@@ -155,67 +187,68 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
           setNextCountdown((prev) => prev - 1);
         }, 1000);
       } else {
+        // Review timer reached zero -> enter 0.5s transition phase
+        setPhase('transitioning');
+      }
+    }
+    return () => clearTimeout(reviewTimer);
+  }, [isCompleted, phase, nextCountdown]);
+
+  // Phase 5: ~0.5s fade transition before next question or completion (Section 7, 9)
+  useEffect(() => {
+    let transitionTimer: any = null;
+    if (phase === 'transitioning') {
+      transitionTimer = setTimeout(() => {
         if (currentIndex >= questions.length - 1) {
           setIsCompleted(true);
-          setCtaCountdown(15);
+          setLoopCountdown(9); // Section 11: 9s countdown
           sounds.playFanfare();
         } else {
           setCurrentIndex((prev) => prev + 1);
-          setTimeLeft(30);
-          setNextCountdown(12);
-          setIsRevealed(false);
+          setTimeLeft(questionDuration);
+          setNextCountdown(revealDuration);
           setSelectedOption(null);
+          setPhase('question');
         }
-      }
+      }, 500); // 0.5s fade transition
     }
-    return () => clearTimeout(nextTimer);
-  }, [isCompleted, isRevealed, nextCountdown, currentIndex, questions.length]);
+    return () => clearTimeout(transitionTimer);
+  }, [phase, currentIndex, questions.length, questionDuration, revealDuration]);
 
-  // Summary loop timer
+  // Section 11 & 14: Loop countdown for auto-restarting next round (9s)
   useEffect(() => {
-    let ctaTimer: any = null;
-    if (isCompleted) {
-      if (ctaCountdown > 0) {
-        ctaTimer = setTimeout(() => {
-          if (ctaCountdown <= 5) {
-            sounds.playUrgentTick();
-          } else {
-            sounds.playTick();
-          }
-          setCtaCountdown((prev) => prev - 1);
+    let loopTimer: any = null;
+    if (isCompleted && !isLoopPaused) {
+      if (loopCountdown > 0) {
+        loopTimer = setTimeout(() => {
+          setLoopCountdown((prev) => prev - 1);
         }, 1000);
       } else {
-        handleRestartAssessment();
+        handleRestartQuiz();
       }
     }
-    return () => clearTimeout(ctaTimer);
-  }, [isCompleted, ctaCountdown]);
+    return () => clearTimeout(loopTimer);
+  }, [isCompleted, isLoopPaused, loopCountdown]);
 
+  // Manual option selection by user during thinking time
   const handleManualSelect = (opt: QuestionOption) => {
-    if (isRevealed || !currentQ || isCompleted) return;
+    if (phase !== 'question' || !currentQ || isCompleted) return;
     setSelectedOption(opt);
-    setIsRevealed(true);
-
-    if (opt === currentQ.correctAnswer) {
-      setScore((prev) => prev + 1);
-      setStreak((prev) => prev + 1);
-      sounds.playCorrect();
-    } else {
-      setStreak(0);
-      sounds.playReveal();
-    }
+    // Move into times_up pause
+    setPhase('times_up');
   };
 
-  const handleRestartAssessment = () => {
+  const handleRestartQuiz = () => {
     setCurrentIndex(0);
     setScore(0);
     setStreak(0);
-    setTimeLeft(30);
-    setNextCountdown(12);
-    setCtaCountdown(15);
-    setIsRevealed(false);
+    setTimeLeft(questionDuration);
+    setNextCountdown(revealDuration);
+    setPhase('question');
     setSelectedOption(null);
     setIsCompleted(false);
+    setLoopCountdown(9);
+    setIsLoopPaused(false);
     if (shuffle) {
       setQuestions([...questions].sort(() => Math.random() - 0.5));
     }
@@ -225,130 +258,148 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
   if (questions.length === 0 || !currentQ) {
     return (
       <div className="min-h-screen bg-[#0b132b] flex items-center justify-center p-4 text-white">
-        <p>Loading Canada Immigration Assessment Engine...</p>
+        <p>Loading BACS Immigration Quiz Engine...</p>
       </div>
     );
   }
 
-  // Assessment Completion Summary
+  // =========================================================================
+  // FINAL SCREEN (Section 11): One Conversion Destination (Assessment Only)
+  // =========================================================================
   if (isCompleted) {
-    const result = calculateAssessmentResult(score, questions.length);
     const percentage = Math.round((score / questions.length) * 100);
 
     return (
       <div className="min-h-screen bg-[#0b132b] text-white flex items-center justify-center p-3 sm:p-4 select-none overflow-hidden">
-        <div className="w-full max-w-xl bg-[#0f172a] border-2 border-slate-800 rounded-3xl shadow-2xl flex flex-col justify-between overflow-hidden relative p-5 space-y-4">
+        {/* Safe-Zone Layout Container */}
+        <div className="w-full max-w-md bg-[#0f172a] border-2 border-slate-800 rounded-3xl shadow-2xl flex flex-col justify-between overflow-hidden relative p-6 space-y-4 aspect-[9/16] max-h-[96vh]">
           
-          <div className="text-center space-y-2 shrink-0">
-            <div className="inline-flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-500 text-emerald-300 px-3.5 py-1 rounded-full text-xs font-bold shadow-md">
-              <Award className="w-4 h-4 text-amber-400" /> IMMIGRATION ASSESSMENT COMPLETE
-            </div>
-            
-            {/* Score & Level Badge */}
-            <div className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-4 my-2 text-center space-y-1 shadow-inner">
-              <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-widest block">
-                IMMIGRATION READINESS RATING
-              </span>
-              <div className="text-2xl md:text-3xl font-black text-amber-400 font-mono">
-                {result.level}
-              </div>
-              <p className="text-xs font-bold text-white">
-                Score: {score}/{questions.length} ({percentage}%) • <strong className="text-emerald-400">{result.readiness}</strong>
-              </p>
-              <p className="text-[11px] text-slate-300 pt-1">
-                {result.recommendation}
-              </p>
-            </div>
-          </div>
-
-          {/* Action Links & Strategic Nudge */}
-          <div className="space-y-2.5">
+          {/* Top Branding (Section 2) */}
+          <div className="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800/80 pb-2.5">
+            <span className="font-semibold tracking-wider flex items-center gap-1.5 text-slate-300 font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> 🇨🇦 BACS IMMIGRATION QUIZ
+            </span>
             <button
-              onClick={onOpenVideoStudio}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl p-3 flex items-center justify-between shadow-lg transition-all"
+              onClick={handleToggleMute}
+              className="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-900 border border-slate-800 transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-slate-950/20 border border-slate-950/30 flex items-center justify-center text-slate-950 font-bold">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <h4 className="text-xs font-black">
-                    Export Session to 1080p MP4 Video Reel
-                  </h4>
-                  <p className="text-[10px] text-slate-900/80 font-medium">Generate viral immigration video for YouTube Shorts & TikTok</p>
-                </div>
-              </div>
-              <ExternalLink className="w-4 h-4 shrink-0" />
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
             </button>
-
-            {/* Substack Guide */}
-            <a
-              href="https://substack.com/@canadaimmigrationguide"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-slate-900 hover:bg-slate-850 border border-sky-500/40 rounded-xl p-3 flex items-center justify-between group transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500 flex items-center justify-center text-sky-400 font-bold text-xs">
-                  <Compass className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <h4 className="text-xs font-bold text-white group-hover:text-sky-300 transition-colors">
-                    Canada Immigration Guide on Substack
-                  </h4>
-                  <p className="text-[10px] text-slate-400">Daily Express Entry draw analysis & PNP tech strategies</p>
-                </div>
-              </div>
-              <ExternalLink className="w-4 h-4 text-sky-400 shrink-0" />
-            </a>
-
-            {/* WhatsApp Consultation */}
-            <a
-              href="https://wa.me/2347089711946"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-emerald-950/40 hover:bg-emerald-950/60 border border-emerald-500/50 rounded-xl p-3 flex items-center justify-between group transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400 font-bold">
-                  <MessageCircle className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <h4 className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">
-                    Book 1-on-1 Canada Immigration Strategy Call
-                  </h4>
-                  <p className="text-[10px] text-emerald-300/80">WhatsApp: +234 708 971 1946</p>
-                </div>
-              </div>
-              <ExternalLink className="w-4 h-4 text-emerald-400 shrink-0" />
-            </a>
           </div>
 
-          {/* Replay Loop Banner */}
-          <div className={`px-4 py-2 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${
-            ctaCountdown <= 5 ? 'bg-rose-500/20 border-rose-500 text-rose-300 animate-pulse' : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-          }`}>
-            <span className="flex items-center gap-1.5">
-              🔄 Next Assessment Loop Starting in:
-            </span>
-            <span className="font-mono text-sm px-2 py-0.5 rounded bg-slate-950 text-white border border-emerald-500/40">
-              {ctaCountdown}s
-            </span>
+          {/* Header Block: 🎯 QUIZ COMPLETE + Dynamic Score */}
+          <div className="text-center space-y-2 pt-2">
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center justify-center gap-2">
+              <span>🎯 QUIZ COMPLETE</span>
+            </h2>
+
+            {/* Dynamic Score Indicator (Never hard-coded) */}
+            <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 px-4 py-1.5 rounded-full text-base font-black font-mono tracking-wider">
+              <span>{score}/{questions.length} — {percentage}%</span>
+            </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-slate-800 shrink-0">
+          {/* Section Divider 1 */}
+          <div className="border-t border-slate-800/90 my-1"></div>
+
+          {/* IMMIGRATION MILESTONES & NEXT STEPS */}
+          <div className="text-center space-y-2">
+            <h3 className="text-xs sm:text-sm font-black text-slate-300 tracking-wider uppercase font-mono">
+              IMMIGRATION MILESTONES & NEXT STEPS
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed max-w-xs mx-auto">
+              Your quiz result is a starting point.<br />
+              Your actual immigration options depend on your individual profile.
+            </p>
+          </div>
+
+          {/* Section Divider 2 */}
+          <div className="border-t border-slate-800/90 my-1"></div>
+
+          {/* 🇨🇦 PRIMARY CONVERSION CTA: FREE PROFILE ASSESSMENT (Section 1 & 11) */}
+          <div className="bg-slate-900/95 border-2 border-emerald-500 rounded-2xl p-4 sm:p-5 text-center space-y-3 shadow-xl shadow-emerald-500/10">
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-lg">🇨🇦</span>
+              <h4 className="text-sm sm:text-base font-black text-white uppercase tracking-tight">
+                FREE PROFILE ASSESSMENT
+              </h4>
+            </div>
+
+            {/* Exact required wording (Section 0.1 & 11) */}
+            <p className="text-xs sm:text-sm text-emerald-300 font-semibold leading-relaxed">
+              Find out your real chance of moving to Canada in 4 minutes.
+            </p>
+
+            <a
+              href="https://bacs-canada.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              id="quiz-primary-assessment-cta-btn"
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl py-3.5 px-4 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 transition-all text-xs sm:text-sm uppercase tracking-wider group"
+            >
+              <span>CANADA INTEL HUB →</span>
+              <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+            </a>
+
+            {/* URL Display (Section 11: fully readable as plain text beneath label) */}
+            <div className="text-xs font-mono text-slate-400 hover:text-emerald-300 transition-colors">
+              <a href="https://bacs-canada.vercel.app" target="_blank" rel="noopener noreferrer">
+                bacs-canada.vercel.app
+              </a>
+            </div>
+          </div>
+
+          {/* Section Divider 3 */}
+          <div className="border-t border-slate-800/90 my-1"></div>
+
+          {/* Section 11 & 14: Loop Countdown: 🔔 NEXT QUIZ ROUND IN 9s */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs font-mono">
+            <div className="flex items-center gap-2 text-slate-300 font-bold">
+              <span>🔔 NEXT QUIZ ROUND IN {loopCountdown}s</span>
+            </div>
+            <button
+              onClick={() => setIsLoopPaused((prev) => !prev)}
+              className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-slate-950 border border-slate-800"
+            >
+              {isLoopPaused ? (
+                <>
+                  <Play className="w-3 h-3 text-emerald-400 fill-emerald-400" /> Resume
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3 h-3 text-amber-400" /> Pause
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Action Controls: Back to Setup, Video Studio, Replay Quiz (Section 14) */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 shrink-0">
             <button
               onClick={onBackToSetup}
+              id="quiz-back-setup-btn"
               className="flex items-center gap-1.5 text-slate-400 hover:text-white text-xs font-semibold"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Back to Setup
+              <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
-            <button
-              onClick={handleRestartAssessment}
-              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition-all shadow"
-            >
-              <RotateCcw className="w-3.5 h-3.5" /> Replay Assessment
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onOpenVideoStudio}
+                id="quiz-export-video-btn"
+                className="text-[11px] bg-slate-900 hover:bg-slate-850 text-emerald-400 border border-emerald-500/40 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Video Studio
+              </button>
+
+              <button
+                onClick={handleRestartQuiz}
+                id="quiz-replay-btn"
+                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Replay Quiz
+              </button>
+            </div>
           </div>
 
         </div>
@@ -356,34 +407,49 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
     );
   }
 
+  // =========================================================================
+  // ACTIVE QUESTION & REVEAL SCREEN (Questions 1–3) (Sections 2, 3, 5, 6, 7, 8)
+  // =========================================================================
+  const isRevealedState = phase === 'revealed' || phase === 'transitioning';
+  const isSelectionHighlightState = phase === 'animating' || isRevealedState;
+  const is2x2Layout = isShortAnswerSet(currentQ.options);
+
   return (
     <div className="min-h-screen bg-[#0b132b] text-white flex items-center justify-center p-2 sm:p-4 select-none overflow-hidden">
-      <div className="w-full max-w-xl bg-[#0f172a] border-2 border-slate-800 rounded-3xl shadow-2xl flex flex-col justify-between overflow-hidden relative aspect-[9/16] sm:aspect-[16/9] max-h-[94vh]">
+      {/* 9:16 Safe Area Container (Section 12: Clear of top status & bottom/right chrome) */}
+      <div
+        className={`w-full max-w-md bg-[#0f172a] border-2 border-slate-800 rounded-3xl shadow-2xl flex flex-col justify-between overflow-hidden relative aspect-[9/16] max-h-[96vh] transition-opacity duration-500 ${
+          phase === 'transitioning' ? 'opacity-20 scale-[0.99]' : 'opacity-100 scale-100'
+        }`}
+      >
         
-        {/* Top Status Bar */}
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
+        {/* 1. TOP HEADER (Section 2 & 3): Clean BACS IMMIGRATION QUIZ Branding */}
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={onBackToSetup}
               className="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-950 border border-slate-800 transition-colors"
               title="Back to Setup"
+              id="quiz-top-back-btn"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
             </button>
             <div>
-              <h2 className="text-[11px] font-black text-white tracking-wider">BACS CANADA IMMIGRATION ASSESSMENT</h2>
-              <p className="text-[9px] text-emerald-400 font-semibold tracking-wide">IRCC REGULATION & COMPLIANCE ENGINE</p>
+              {/* Question number & category (Section 3) */}
+              <h2 className="text-xs font-black text-white tracking-wider uppercase font-mono leading-none">
+                QUESTION {currentIndex + 1} OF {questions.length} • {(currentQ.category || 'EXPRESS ENTRY').toUpperCase()}
+              </h2>
+              {/* Official IRCC-Sourced branding (Section 2) */}
+              <p className="text-[10px] text-emerald-400 font-semibold tracking-wide pt-1 font-mono">
+                🇨🇦 BACS IMMIGRATION QUIZ • IRCC-SOURCED KNOWLEDGE
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="bg-slate-950 border border-slate-800 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-amber-400 flex items-center gap-1">
-              <span>Score: {score}/{currentIndex + (isRevealed ? 1 : 0)}</span>
-            </div>
-
             {streak >= 2 && (
-              <div className="bg-rose-500/20 border border-rose-500/50 text-rose-300 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 animate-pulse">
-                <Flame className="w-3 h-3 text-rose-400 fill-rose-400" /> {streak} Streak
+              <div className="bg-amber-500/20 border border-amber-500/50 text-amber-300 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 animate-pulse">
+                <Flame className="w-3 h-3 text-amber-400 fill-amber-400" /> {streak}
               </div>
             )}
 
@@ -397,126 +463,160 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
           </div>
         </div>
 
-        {/* Category & Milestone Bar */}
-        <div className="px-4 py-1.5 bg-slate-950/60 border-b border-slate-900 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-1.5">
-            <span className="bg-sky-500/20 border border-sky-500/40 text-sky-300 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-              {currentQ.category}
-            </span>
-            <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1">
-              <Layers className="w-3 h-3" /> {currentMilestone.name}
-            </span>
-          </div>
-
-          <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
-            {currentQ.difficulty}
-          </span>
-        </div>
-
-        {/* Timer Bar */}
-        {!isRevealed ? (
-          <div className={`border-y px-4 py-1.5 flex items-center justify-between shrink-0 transition-colors ${
-            timeLeft <= 5 ? 'bg-rose-500/20 border-rose-500/40 animate-pulse' : 'bg-amber-500/10 border-amber-500/30'
+        {/* 2. SINGLE COMMENT PROMPT BAR (Section 5, 7, 9) */}
+        {phase === 'question' && (
+          <div className={`border-b px-4 py-2 flex items-center justify-between shrink-0 transition-colors ${
+            timeLeft <= 4 ? 'bg-rose-500/20 border-rose-500/40 animate-pulse' : 'bg-slate-900/80 border-slate-800'
           }`}>
-            <div className={`text-[11px] font-semibold flex items-center gap-1.5 ${timeLeft <= 5 ? 'text-rose-300 font-bold' : 'text-amber-300'}`}>
-              <span>{timeLeft <= 5 ? '⚡ FINAL SECONDS — CHOOSE YOUR ANSWER!' : '💬 Select Option A, B, C, or D'}</span>
+            {/* Exactly one comment prompt: COMMENT A, B, C OR D — 25s */}
+            <div className="text-xs font-black tracking-wider text-amber-400 uppercase font-mono">
+              💬 COMMENT A, B, C OR D — {timeLeft}s
             </div>
-            <div className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold border ${
-              timeLeft <= 5 ? 'bg-rose-950 text-rose-300 border-rose-500 animate-bounce' : 'bg-slate-950 text-amber-400 border-amber-500/40'
+            <div className={`px-2 py-0.5 rounded text-xs font-mono font-black border ${
+              timeLeft <= 4 ? 'bg-rose-950 text-rose-300 border-rose-500' : 'bg-slate-950 text-amber-400 border-amber-500/40'
             }`}>
-              <span>TIMER:</span>
-              <span className="text-white ml-1 px-1 py-0.5 rounded">{timeLeft}s</span>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-emerald-500/15 border-y border-emerald-500/40 px-4 py-1.5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5 text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> IRCC REGULATION ANALYSIS REVEALED ({nextCountdown}s)
-            </div>
-            <div className="text-[11px] text-slate-300 font-mono">
-              Next Q in <strong className="text-emerald-400">{nextCountdown}s</strong>
+              {timeLeft}s
             </div>
           </div>
         )}
 
-        {/* Question & Options Area */}
-        <div className="flex-1 px-4 py-2 flex flex-col justify-center overflow-hidden space-y-2">
-          {!isRevealed ? (
-            <>
-              {/* Question Text */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-inner">
-                <p className="text-xs md:text-sm font-bold text-white leading-snug">
-                  {currentQ.text}
-                </p>
-              </div>
+        {phase === 'times_up' && (
+          <div className="bg-amber-500/20 border-b border-amber-500/50 px-4 py-2 flex items-center justify-between shrink-0 animate-pulse">
+            <div className="text-xs font-black tracking-wider text-amber-300 uppercase font-mono">
+              💬 TIME'S UP
+            </div>
+            <div className="text-[10px] font-mono text-amber-400 font-bold">
+              LOCKING IN
+            </div>
+          </div>
+        )}
 
-              {/* Options A, B, C, D */}
-              <div className="grid grid-cols-1 gap-1.5">
-                {(['A', 'B', 'C', 'D'] as QuestionOption[]).map((opt) => {
-                  const isSelected = selectedOption === opt;
-                  return (
-                    <button
-                      key={opt}
-                      onClick={() => handleManualSelect(opt)}
-                      className={`w-full text-left px-3 py-2 rounded-xl border flex items-center gap-2.5 transition-all ${
-                        isSelected
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-200'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-200 hover:border-slate-700 hover:bg-slate-900'
-                      }`}
-                    >
-                      <span className="w-5 h-5 rounded-md bg-emerald-500 text-slate-950 font-black text-[11px] flex items-center justify-center shrink-0 shadow">
-                        {opt}
-                      </span>
-                      <span className="text-xs md:text-sm font-medium line-clamp-1">{currentQ.options[opt]}</span>
-                    </button>
-                  );
-                })}
-              </div>
+        {phase === 'animating' && (
+          <div className="bg-emerald-500/20 border-b border-emerald-500/50 px-4 py-2 flex items-center justify-between shrink-0">
+            <div className="text-xs font-black tracking-wider text-emerald-300 uppercase font-mono flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>ANSWER REVEAL</span>
+            </div>
+            <div className="text-[10px] font-mono text-emerald-400 font-bold">
+              HIGHLIGHTING
+            </div>
+          </div>
+        )}
 
-              {/* Tip Box */}
-              <div className="bg-slate-900/90 border border-amber-500/30 rounded-xl p-2.5 text-xs text-slate-300 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Test your IRCC policy compliance knowledge to optimize your immigration readiness score.</span>
-              </div>
-            </>
-          ) : (
-            /* Answer Reveal View */
-            <div className="bg-slate-900/95 border border-emerald-500/50 rounded-2xl p-3 space-y-2 shadow-2xl animate-in fade-in zoom-in duration-200">
-              <div className="text-center space-y-0.5">
-                <span className="text-[9px] uppercase tracking-widest text-emerald-400 font-bold">
-                  OFFICIAL IRCC COMPLIANT ANSWER
+        {isRevealedState && (
+          /* Section 9: ⚡ ANSWER REVEALED • REVIEW TIME: 12s */
+          <div className="bg-emerald-500/15 border-b border-emerald-500/40 px-4 py-2 flex items-center justify-between shrink-0">
+            <div className="text-xs font-black uppercase tracking-wider text-emerald-400 font-mono">
+              ⚡ ANSWER REVEALED • REVIEW TIME: {nextCountdown}s
+            </div>
+            <div className="text-[11px] text-slate-300 font-mono font-bold">
+              SCORE: {score}/{currentIndex + 1}
+            </div>
+          </div>
+        )}
+
+        {/* 3. QUESTION & RESPONSIVE ANSWER CARDS (Section 6: Responsive Layout) */}
+        <div className="flex-1 px-4 py-3 flex flex-col justify-center space-y-3 overflow-y-auto">
+          
+          {/* Question Text (Dominant Element, 24px+ mobile-first proportion) */}
+          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-inner">
+            <p className="text-sm sm:text-base md:text-lg font-bold text-white leading-snug">
+              {currentQ.text || currentQ.question}
+            </p>
+          </div>
+
+          {/* Section 6: Responsive Answer Card Layout: 2x2 grid if short, stacked cards if longer */}
+          <div className={is2x2Layout ? 'grid grid-cols-2 gap-2.5' : 'grid grid-cols-1 gap-2.5'}>
+            {(['A', 'B', 'C', 'D'] as QuestionOption[]).map((opt) => {
+              const isSelected = selectedOption === opt;
+              const isCorrect = isSelectionHighlightState && opt === currentQ.correctAnswer;
+              const isWrongSelection = isSelectionHighlightState && isSelected && !isCorrect;
+              const isSubdued = isSelectionHighlightState && !isCorrect;
+
+              return (
+                <button
+                  key={opt}
+                  onClick={() => handleManualSelect(opt)}
+                  disabled={phase !== 'question'}
+                  className={`w-full text-left rounded-xl border flex items-center gap-2.5 transition-all duration-700 ease-out ${
+                    is2x2Layout ? 'p-3' : 'px-3.5 py-2.5'
+                  } ${
+                    isCorrect
+                      ? 'bg-emerald-500/25 border-emerald-500 text-white font-bold scale-[1.02] shadow-xl shadow-emerald-500/25 ring-2 ring-emerald-500/50 z-10 animate-pulse'
+                      : isWrongSelection
+                      ? 'bg-rose-500/20 border-rose-500 text-rose-200 opacity-70'
+                      : isSubdued
+                      ? 'bg-slate-950/60 border-slate-800/80 text-slate-500 opacity-40 scale-[0.99] pointer-events-none'
+                      : isSelected
+                      ? 'bg-amber-500/20 border-amber-500 text-white ring-1 ring-amber-500/50'
+                      : 'bg-slate-900/80 border-slate-800 text-slate-200 hover:border-slate-700 hover:bg-slate-900'
+                  }`}
+                >
+                  {/* Badge with animated checkmark on reveal */}
+                  <span
+                    className={`w-6 h-6 rounded-md font-black text-xs flex items-center justify-center shrink-0 shadow transition-all duration-500 ${
+                      isCorrect
+                        ? 'bg-emerald-500 text-slate-950 scale-110 rotate-0'
+                        : isWrongSelection
+                        ? 'bg-rose-500 text-white'
+                        : isSelected
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    {isCorrect ? '✓' : opt}
+                  </span>
+                  <span className={`text-xs sm:text-sm font-medium leading-snug flex-1 ${
+                    isCorrect ? 'text-emerald-200 font-bold' : ''
+                  }`}>
+                    {currentQ.options[opt]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 4. OFFICIAL REASONING PANEL (Section 7 & 8) - Fades & slides in */}
+          {isRevealedState && (
+            <div className="bg-slate-900/95 border-2 border-emerald-500/60 rounded-2xl p-3.5 space-y-2 shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-500">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[11px] font-mono font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>💡 OFFICIAL REASONING & IRCC REFERENCE</span>
                 </span>
-                <h3 className="text-sm md:text-base font-black text-white uppercase tracking-wide">
-                  OPTION {currentQ.correctAnswer}: {currentQ.options[currentQ.correctAnswer]}
-                </h3>
-              </div>
-
-              <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2 space-y-0.5 text-xs">
-                <span className="font-bold text-emerald-300 uppercase tracking-wide text-[9px] flex items-center gap-1">
-                  <BookOpen className="w-3 h-3 text-emerald-400" /> OFFICIAL IRCC REGULATION CITATION:
+                <span className="text-[10px] font-mono text-slate-400">
+                  VERIFIED
                 </span>
-                <p className="text-emerald-400 font-mono text-[10px] md:text-[11px] leading-snug">{currentQ.reference}</p>
               </div>
 
-              <div className="bg-emerald-950/25 border border-emerald-500/30 rounded-xl p-2 space-y-0.5 text-xs">
-                <span className="font-bold text-emerald-400 uppercase tracking-wide text-[9px]">STRATEGIC COMPLIANCE INSIGHT:</span>
-                <p className="text-slate-200 leading-relaxed text-[10px] md:text-[11px]">{currentQ.insight}</p>
+              {/* 1-3 short sentences explaining the correct answer (Section 8) */}
+              <div className="text-xs sm:text-sm text-slate-100 font-medium leading-relaxed">
+                {currentQ.insight || currentQ.explanation}
+              </div>
+
+              {/* Official Source: [IRCC source title] */}
+              <div className="text-[11px] text-slate-400 font-mono pt-1.5 border-t border-slate-800/80 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="line-clamp-2">
+                  Official Source: {currentQ.sourceTitle || currentQ.reference}
+                </span>
               </div>
             </div>
           )}
+
         </div>
 
-        {/* Footer */}
-        <div className="bg-slate-900 border-t border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
-          <span className="text-[9px] text-slate-400 tracking-wider flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> BACS Relocation Intelligence Engine
+        {/* 5. SUBTLE BOTTOM WATERMARK (Section 2 & 10: No CTA on Questions or Reveals) */}
+        <div className="bg-slate-900/90 border-t border-slate-800 px-4 py-2 flex items-center justify-between shrink-0 text-[10px] text-slate-400">
+          <span className="flex items-center gap-1 text-slate-400 font-mono">
+            <ShieldCheck className="w-3 h-3 text-emerald-400" /> BACS Immigration Quiz Engine
           </span>
 
           <button
             onClick={onOpenVideoStudio}
-            className="text-[10px] bg-slate-950 hover:bg-slate-800 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-colors"
+            className="text-[10px] text-slate-400 hover:text-emerald-400 font-semibold transition-colors"
           >
-            <span>Generate 1080p Video</span>
+            Video Studio
           </button>
         </div>
 
