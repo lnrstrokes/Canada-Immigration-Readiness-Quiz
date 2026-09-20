@@ -22,6 +22,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { Layer4DistributionSection } from './Layer4DistributionSection';
 import { getFullCalendarSchedule, validateQuestionSet } from '../data/calendarSchedule';
 
 interface SetupViewProps {
@@ -375,6 +376,9 @@ export const SetupView: React.FC<SetupViewProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Layer 4: Distribution & Engagement Pack */}
+              <Layer4DistributionSection day={selectedDay} />
 
               {/* Launch Day Controls */}
               <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-2 border-t border-slate-800/80">

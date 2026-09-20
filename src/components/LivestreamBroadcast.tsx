@@ -117,12 +117,15 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
     if (!isCompleted && phase === 'question' && currentQ) {
       if (timeLeft > 0) {
         timer = setTimeout(() => {
-          if (timeLeft <= 4 && timeLeft > 1) {
-            sounds.playUrgentTick();
+          const nextVal = timeLeft - 1;
+          if (nextVal > 0) {
+            // Stage 1 (25-11s), Stage 2 (10-6s), Stage 3 (5-1s)
+            sounds.playQuestionCountdownTick(nextVal);
           } else {
-            sounds.playTick();
+            // At 0s: play short time expired confirmation tone
+            sounds.playTimeExpired();
           }
-          setTimeLeft((prev) => prev - 1);
+          setTimeLeft(nextVal);
         }, 1000);
       } else {
         // Countdown hit 0 -> enter 0.5s TIME'S UP pause (Section 7)

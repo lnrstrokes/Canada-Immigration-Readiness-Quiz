@@ -885,14 +885,48 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ config
         for (let sec = 0; sec < DURATION_SEC; sec++) {
           const osc = offlineCtx.createOscillator();
           const gain = offlineCtx.createGain();
-          osc.type = sec % 10 >= 7 ? 'sine' : 'triangle';
-          osc.frequency.setValueAtTime(sec % 10 >= 7 ? 880 : 440, sec);
-          gain.gain.setValueAtTime(0.06, sec);
-          gain.gain.exponentialRampToValueAtTime(0.001, sec + 0.1);
+
+          const secInQ = sec % singleQuestionDuration;
+          if (secInQ < qThinkTime) {
+            const secRemaining = Math.round(qThinkTime - secInQ);
+            if (secRemaining >= 11) {
+              // Stage 1: Soft neutral tick (580Hz)
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(580, sec);
+              gain.gain.setValueAtTime(0.045, sec);
+              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.04);
+            } else if (secRemaining >= 6) {
+              // Stage 2: Urgency tick (820Hz)
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(820, sec);
+              gain.gain.setValueAtTime(0.07, sec);
+              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.055);
+            } else {
+              // Stage 3: Final countdown (1120Hz)
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(1120, sec);
+              gain.gain.setValueAtTime(0.09, sec);
+              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.075);
+            }
+          } else if (Math.abs(secInQ - qThinkTime) < 1) {
+            // Time Expired confirmation tone
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(520, sec);
+            osc.frequency.exponentialRampToValueAtTime(370, sec + 0.18);
+            gain.gain.setValueAtTime(0.08, sec);
+            gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.22);
+          } else {
+            // Review tone
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(440, sec);
+            gain.gain.setValueAtTime(0.03, sec);
+            gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.08);
+          }
+
           osc.connect(gain);
           gain.connect(offlineCtx.destination);
           osc.start(sec);
-          osc.stop(sec + 0.1);
+          osc.stop(sec + 0.22);
         }
 
         const renderedAudioBuffer = await offlineCtx.startRendering();

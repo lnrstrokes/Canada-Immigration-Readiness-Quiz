@@ -32,44 +32,24 @@ class SoundManager {
     return this.muted;
   }
 
-  public playTick() {
+  public playNormalCountdownTick() {
     if (this.muted) return;
     this.init();
     if (!this.ctx) return;
 
     try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(800, this.ctx.currentTime);
-      gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      if (this.customDestination) {
-        gain.connect(this.customDestination);
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
       }
-
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.08);
-    } catch (e) {}
-  }
-
-  public playUrgentTick() {
-    if (this.muted) return;
-    this.init();
-    if (!this.ctx) return;
-
-    try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = 'square'; // sharper urgency
-      osc.frequency.setValueAtTime(1200, now);
-      osc.frequency.setValueAtTime(1400, now + 0.04);
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+      // Stage 1 (25s - 11s): Soft, low volume, neutral professional tone
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(580, now);
+      gain.gain.setValueAtTime(0.045, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
 
       osc.connect(gain);
       gain.connect(this.ctx.destination);
@@ -77,9 +57,119 @@ class SoundManager {
         gain.connect(this.customDestination);
       }
 
-      osc.start();
-      osc.stop(now + 0.12);
+      osc.start(now);
+      osc.stop(now + 0.04);
     } catch (e) {}
+  }
+
+  public playUrgencyCountdownTick() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      // Stage 2 (10s - 6s): Slightly more noticeable, higher pitch, urgent but professional
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(820, now);
+      gain.gain.setValueAtTime(0.07, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      if (this.customDestination) {
+        gain.connect(this.customDestination);
+      }
+
+      osc.start(now);
+      osc.stop(now + 0.055);
+    } catch (e) {}
+  }
+
+  public playFinalCountdownTick() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      // Stage 3 (5s - 1s): Sharper, distinct, high-pitched countdown tone
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1120, now);
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.075);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      if (this.customDestination) {
+        gain.connect(this.customDestination);
+      }
+
+      osc.start(now);
+      osc.stop(now + 0.075);
+    } catch (e) {}
+  }
+
+  public playTimeExpired() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      // At 0s: Short, gentle descending confirmation tone (not a siren/buzzer)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(370, now + 0.18);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      if (this.customDestination) {
+        gain.connect(this.customDestination);
+      }
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch (e) {}
+  }
+
+  public playQuestionCountdownTick(secondsRemaining: number) {
+    if (this.muted) return;
+    if (secondsRemaining >= 11) {
+      this.playNormalCountdownTick();
+    } else if (secondsRemaining >= 6) {
+      this.playUrgencyCountdownTick();
+    } else if (secondsRemaining >= 1) {
+      this.playFinalCountdownTick();
+    }
+  }
+
+  public playTick() {
+    this.playNormalCountdownTick();
+  }
+
+  public playUrgentTick() {
+    this.playFinalCountdownTick();
   }
 
   public playMilestone() {

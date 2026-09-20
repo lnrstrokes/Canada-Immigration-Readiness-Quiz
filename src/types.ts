@@ -57,6 +57,23 @@ export interface Question {
   metadata?: QuestionMetadata;
 }
 
+export interface TikTokMetadata {
+  caption: string;
+  shortDescription: string;
+  hashtags: string[];
+}
+
+export interface YouTubeShortsMetadata {
+  title: string;
+  description: string;
+  tags: string[];
+}
+
+export interface Layer4DistributionPack {
+  tiktok: TikTokMetadata;
+  youtubeShorts: YouTubeShortsMetadata;
+}
+
 export interface VerifiedFactPacket {
   topic: string;
   checkedDate: string;
@@ -81,6 +98,7 @@ export interface CalendarDay {
   questions: Question[];
   validationIssues?: string[];
   isReviewRequired?: boolean;
+  distributionPack?: Layer4DistributionPack;
 }
 
 export interface ChallengeConfig {
