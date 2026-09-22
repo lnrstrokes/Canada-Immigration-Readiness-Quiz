@@ -1,6 +1,6 @@
 {
-  "name": "BACS Canada Immigration Assessment",
-  "description": "Interactive Canada immigration knowledge assessment engine with IRCC compliance source citations, CRS point optimizer, and PWA capabilities.",
+  "name": "Blessing Chigozie Bible Quiz Engine",
+  "description": "Interactive Bible quiz and broadcast engine featuring a 14-day auto calendar, 500+ verified Scripture questions, category balancing, smart answer shuffling, and infinite screencast playback.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

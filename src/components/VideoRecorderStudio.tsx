@@ -637,9 +637,40 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ config
       }
     }
 
-    const stream = canvas.captureStream(FPS);
+    const canvasStream = canvas.captureStream(FPS);
+    let recordingStream = canvasStream;
+    let audioContextToClose: AudioContext | null = null;
+
+    if (typeof window !== 'undefined') {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const audioCtx = new AudioCtx();
+          audioContextToClose = audioCtx;
+          const audioDest = audioCtx.createMediaStreamDestination();
+          const renderedAudioBuffer = await sounds.renderFullQuizAudio(
+            DURATION_SEC,
+            singleQuestionDuration,
+            qThinkTime,
+            audioCtx.sampleRate || 48000
+          );
+          const bufferSource = audioCtx.createBufferSource();
+          bufferSource.buffer = renderedAudioBuffer;
+          bufferSource.connect(audioDest);
+          bufferSource.start();
+
+          recordingStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioDest.stream.getAudioTracks(),
+          ]);
+        }
+      } catch (audioErr) {
+        console.warn('Could not attach audio track to MediaRecorder fallback:', audioErr);
+      }
+    }
+
     const recordedChunks: Blob[] = [];
-    const mediaRecorder = new MediaRecorder(stream, {
+    const mediaRecorder = new MediaRecorder(recordingStream, {
       mimeType: selectedMime,
       videoBitsPerSecond: 8_000_000,
     });
@@ -658,6 +689,11 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ config
       let currentFrame = 0;
 
       mediaRecorder.onstop = () => {
+        if (audioContextToClose) {
+          try {
+            audioContextToClose.close();
+          } catch (e) {}
+        }
         if (abortControllerRef.current) {
           const abortErr = new Error('Export aborted by user');
           abortErr.name = 'ExportAbortedError';
@@ -881,55 +917,13 @@ export const VideoRecorderStudio: React.FC<VideoRecorderStudioProps> = ({ config
         const sampleRate = 48000;
         const totalAudioSamples = Math.round(sampleRate * DURATION_SEC);
 
-        const offlineCtx = new OfflineAudioContext(2, totalAudioSamples, sampleRate);
-        for (let sec = 0; sec < DURATION_SEC; sec++) {
-          const osc = offlineCtx.createOscillator();
-          const gain = offlineCtx.createGain();
-
-          const secInQ = sec % singleQuestionDuration;
-          if (secInQ < qThinkTime) {
-            const secRemaining = Math.round(qThinkTime - secInQ);
-            if (secRemaining >= 11) {
-              // Stage 1: Soft neutral tick (580Hz)
-              osc.type = 'sine';
-              osc.frequency.setValueAtTime(580, sec);
-              gain.gain.setValueAtTime(0.045, sec);
-              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.04);
-            } else if (secRemaining >= 6) {
-              // Stage 2: Urgency tick (820Hz)
-              osc.type = 'sine';
-              osc.frequency.setValueAtTime(820, sec);
-              gain.gain.setValueAtTime(0.07, sec);
-              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.055);
-            } else {
-              // Stage 3: Final countdown (1120Hz)
-              osc.type = 'triangle';
-              osc.frequency.setValueAtTime(1120, sec);
-              gain.gain.setValueAtTime(0.09, sec);
-              gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.075);
-            }
-          } else if (Math.abs(secInQ - qThinkTime) < 1) {
-            // Time Expired confirmation tone
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(520, sec);
-            osc.frequency.exponentialRampToValueAtTime(370, sec + 0.18);
-            gain.gain.setValueAtTime(0.08, sec);
-            gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.22);
-          } else {
-            // Review tone
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(440, sec);
-            gain.gain.setValueAtTime(0.03, sec);
-            gain.gain.exponentialRampToValueAtTime(0.0001, sec + 0.08);
-          }
-
-          osc.connect(gain);
-          gain.connect(offlineCtx.destination);
-          osc.start(sec);
-          osc.stop(sec + 0.22);
-        }
-
-        const renderedAudioBuffer = await offlineCtx.startRendering();
+        // Render full mixed audio track: Ambient Background Bed (with ducking) + 3-Stage Countdown Ticks + 0s Time Expired Tone
+        const renderedAudioBuffer = await sounds.renderFullQuizAudio(
+          DURATION_SEC,
+          singleQuestionDuration,
+          qThinkTime,
+          sampleRate
+        );
         const ch0 = renderedAudioBuffer.getChannelData(0);
         const ch1 = renderedAudioBuffer.numberOfChannels > 1 ? renderedAudioBuffer.getChannelData(1) : ch0;
 

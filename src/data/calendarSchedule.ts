@@ -1,4 +1,5 @@
 import { CalendarDay, Question, QuestionOption, isShortAnswerSet } from '../types';
+import { randomizeDailyQuestionSet } from '../utils/answerRandomizer';
 
 export const PROHIBITED_STRINGS = [
   'LIVE STREAM',
@@ -130,6 +131,18 @@ export const validateQuestionSet = (
       issues.push(`Question ${qNum} official reasoning is too long (${q.insight.length} chars) to comfortably read within 12s.`);
     }
   });
+
+  // 8. Deterministic Validation Check: Answer Position Distribution
+  // Ensures no 3-question daily quiz has all correct answers occupying the same letter
+  if (questions.length === 3) {
+    const [q1, q2, q3] = questions;
+    if (q1.correctAnswer === q2.correctAnswer && q2.correctAnswer === q3.correctAnswer) {
+      issues.push(
+        `Answer Position Distribution: All 3 questions have the same correct answer position (${q1.correctAnswer}). Positions must be varied across A-D.`
+      );
+      requiresReview = true;
+    }
+  }
 
   return {
     isValid: issues.length === 0,
@@ -1849,5 +1862,12 @@ export const getFullCalendarSchedule = (): CalendarDay[] => {
     });
   });
 
-  return schedule;
+  // Randomize answer option positions across all 30 days:
+  // 1. Determines verified correct answer from validated data
+  // 2. Randomizes displayed A-D positions (avoiding all-same positions like B-B-B)
+  // 3. Synchronizes correctValues and keeps factual answer 100% verified
+  return schedule.map((day) => ({
+    ...day,
+    questions: randomizeDailyQuestionSet(day.questions, day.dayNumber),
+  }));
 };

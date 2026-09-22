@@ -46,6 +46,7 @@ export interface Question {
     D: string;
   };
   correctAnswer: QuestionOption;
+  correctValues?: string[];
   reference: string; // Official IRCC citation
   source?: string; // e.g. 'IRCC'
   sourceTitle?: string; // e.g. 'CRS Point Allocation Grid § Age Factor'

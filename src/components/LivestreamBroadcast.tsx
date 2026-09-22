@@ -104,7 +104,16 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
     setLoopCountdown(9);
     setIsLoopPaused(false);
     sounds.playMilestone();
+    sounds.startBackgroundMusic();
   }, [config, selectedCategories, shuffle, questionCount, questionDuration, revealDuration]);
+
+  // Clean unmount audio disposal
+  useEffect(() => {
+    sounds.startBackgroundMusic();
+    return () => {
+      sounds.stopAll();
+    };
+  }, []);
 
   const handleToggleMute = () => {
     const m = sounds.toggleMute();
@@ -121,14 +130,24 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
           if (nextVal > 0) {
             // Stage 1 (25-11s), Stage 2 (10-6s), Stage 3 (5-1s)
             sounds.playQuestionCountdownTick(nextVal);
+            // Duck background audio slightly during final 5 seconds for crisp countdown prominence
+            if (nextVal <= 5) {
+              sounds.duckBackgroundMusic(true);
+            } else {
+              sounds.duckBackgroundMusic(false);
+            }
           } else {
-            // At 0s: play short time expired confirmation tone
+            // At 0s: stop countdown audio, reset ducking, and play short time expired confirmation tone
+            sounds.stopCountdownAudio();
+            sounds.duckBackgroundMusic(false);
             sounds.playTimeExpired();
           }
           setTimeLeft(nextVal);
         }, 1000);
       } else {
         // Countdown hit 0 -> enter 0.5s TIME'S UP pause (Section 7)
+        sounds.stopCountdownAudio();
+        sounds.duckBackgroundMusic(false);
         setPhase('times_up');
       }
     }
@@ -205,6 +224,7 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
         if (currentIndex >= questions.length - 1) {
           setIsCompleted(true);
           setLoopCountdown(9); // Section 11: 9s countdown
+          sounds.stopBackgroundMusic();
           sounds.playFanfare();
         } else {
           setCurrentIndex((prev) => prev + 1);
@@ -236,12 +256,15 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
   // Manual option selection by user during thinking time
   const handleManualSelect = (opt: QuestionOption) => {
     if (phase !== 'question' || !currentQ || isCompleted) return;
+    sounds.stopCountdownAudio();
+    sounds.duckBackgroundMusic(false);
     setSelectedOption(opt);
     // Move into times_up pause
     setPhase('times_up');
   };
 
   const handleRestartQuiz = () => {
+    sounds.stopAll();
     setCurrentIndex(0);
     setScore(0);
     setStreak(0);
@@ -256,6 +279,7 @@ export const LivestreamBroadcast: React.FC<LivestreamBroadcastProps> = ({
       setQuestions([...questions].sort(() => Math.random() - 0.5));
     }
     sounds.playMilestone();
+    sounds.startBackgroundMusic();
   };
 
   if (questions.length === 0 || !currentQ) {
